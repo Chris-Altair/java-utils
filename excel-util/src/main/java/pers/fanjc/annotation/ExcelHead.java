@@ -10,5 +10,5 @@ import java.lang.annotation.Target;
 public @interface ExcelHead {
     String value() default "";//表头名
 
-    String dict() default "";//映射的字典
+    String dict() default "";//映射的字典{“excel值”，“对象所需要的值”}
 }

@@ -16,7 +16,7 @@ public class UserDO implements Serializable {
     private String username;
     @ExcelHead("PASSWORD")
     private String password;
-    @ExcelHead(value = "SEX", dict = "")
+    @ExcelHead(value = "SEX", dict = "{\"0\":\"女\",\"1\":\"男\"}")
     private String sex;
     @ExcelHead("STATUS")
     private Integer status;
