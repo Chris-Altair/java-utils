@@ -1,0 +1,5 @@
+将excel的每个sheet页对应一个domain
+sheet名对应修饰domain的ExcelSheet注解的value属性；
+sheet页的表头对应修饰domain的ExcelHead的value属性，
+dict属性用来通过map将excel的值抓换为domain中所需要的值
+通过反射实现值的映射
