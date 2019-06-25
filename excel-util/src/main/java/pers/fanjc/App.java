@@ -3,17 +3,12 @@ package pers.fanjc;
 import org.apache.poi.ss.usermodel.Workbook;
 import pers.fanjc.util.ExcelUtils;
 
-import java.util.ArrayList;
-import java.util.List;
-
 public class App {
     public static void main(String[] args) {
         Workbook wb = ExcelUtils.importExcel(args[0]);
-        List<String> classList = new ArrayList<>();
-        classList.add("pers.fanjc.domain.BookDO");
-        classList.add("pers.fanjc.domain.UserDO");
+        String packageName = "pers.fanjc.domain";
         try {
-            ExcelUtils.analyzeExcel(wb, classList);
+            ExcelUtils.analyzeExcel(wb, packageName);
         } catch (ClassNotFoundException e) {
             e.printStackTrace();
         } catch (IllegalAccessException e) {

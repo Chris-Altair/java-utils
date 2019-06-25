@@ -4,6 +4,7 @@ import com.alibaba.fastjson.JSON;
 import org.apache.poi.hssf.usermodel.HSSFWorkbook;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.reflections.Reflections;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import pers.fanjc.annotation.ExcelHead;
@@ -16,10 +17,7 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.lang.reflect.Field;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 public class ExcelUtils {
     private static Logger logger = LoggerFactory.getLogger(ExcelUtils.class);
@@ -71,21 +69,20 @@ public class ExcelUtils {
     }
 
     /**
-     * 生成 excelSheet:classPath 的map
+     * 生成 excelSheet:class 的map
      *
-     * @param classPaths
+     * @param packageName
      * @return
      * @throws ClassNotFoundException
      */
-    public static Map<String, String> classExcelSheetMap(List<String> classPaths) throws ClassNotFoundException {
-        Map<String, String> excelSheetMap = new HashMap<>();
-        for (String classPath : classPaths) {
-            Class c = Class.forName(classPath);
-            if (!c.isAnnotationPresent(ExcelSheet.class))
-                throw new ExcelException(ExcelExceptionEnum.NO_FIND_EXCEL_SHEET_EXCEPTION);
-            ExcelSheet excelSheet = (ExcelSheet) c.getAnnotation(ExcelSheet.class);
-            excelSheetMap.put(excelSheet.value(), classPath);
-        }
+    public static Map<String, Class> classExcelSheetMap(String packageName) {
+        Map<String, Class> excelSheetMap = new HashMap<>();
+        Reflections reflections = new Reflections(packageName);
+        Set<Class<?>> classSet = reflections.getTypesAnnotatedWith(ExcelSheet.class);
+        classSet.forEach(clazz->{
+            ExcelSheet excelSheet = clazz.getAnnotation(ExcelSheet.class);
+            excelSheetMap.put(excelSheet.value(), clazz);
+        });
         excelSheetMap.forEach((k, v) -> System.out.println("key:value = " + k + ":" + v));
         return excelSheetMap;
     }
@@ -99,60 +96,60 @@ public class ExcelUtils {
      * @param entity 需要赋值的实体entity
      * @throws IllegalAccessException
      */
-    public static void fieldsAssignment(Field[] fields, String name, String value, Object entity) throws IllegalAccessException {
-        for (Field field : fields) {
-            if (!field.isAnnotationPresent(ExcelHead.class))
-                continue;
-            ExcelHead excelHead = field.getAnnotation(ExcelHead.class);
-            //如果表头=注解头，对应字段赋值
-            if (name.equals(excelHead.value())) {
-                boolean accessFlag = field.isAccessible();
-                field.setAccessible(true);
-                if(!"".equals(excelHead.dict())){
-                    Map<String,String> map = (Map) JSON.parse(excelHead.dict());
-                    if(map.containsKey(value)){
-                        value = map.get(value);
+    public static void fieldsAssignment(Field[] fields, String name, String value, Object entity) {
+        Arrays.stream(fields)
+                .filter(field->field.isAnnotationPresent(ExcelHead.class))
+                .filter(field -> name.equals(field.getAnnotation(ExcelHead.class).value()))
+                .forEach(field -> {
+                    String ev = value;
+                    ExcelHead excelHead = field.getAnnotation(ExcelHead.class);
+                    boolean accessFlag = field.isAccessible();
+                    field.setAccessible(true);
+                    if(!"".equals(excelHead.dict())){
+                        Map<String,String> map = (Map) JSON.parse(excelHead.dict());
+                        ev = map.containsKey(ev)?map.get(ev):ev;
                     }
-                }
-                //通过反射判断实体中的字段类型
-                switch (field.getGenericType().toString()) {
-                    case "class java.lang.String":
-                        field.set(entity, value);
-                        break;
-                    case "class java.lang.Integer":
-                        field.set(entity, Integer.parseInt(value));
-                        break;
-                    case "class java.lang.Double":
-                        field.set(entity, Double.parseDouble(value));
-                        break;
-                    case "class java.lang.Long":
-                        field.set(entity, Long.parseLong(value));
-                        break;
-                    case "class java.util.Date":
-                        field.set(entity, DateUtil.getJavaDate(Double.parseDouble(value)));
-                        break;
-                    default:
-                        field.set(entity, value);
-                        break;
-                }
-                field.setAccessible(accessFlag);
-                return;
-            }
-        }
+                    //通过反射判断实体中的字段类型
+                    try{
+                        switch (field.getGenericType().toString()) {
+                            case "class java.lang.String":
+                                field.set(entity, ev);
+                                break;
+                            case "class java.lang.Integer":
+                                field.set(entity, "".equals(ev)?null:Integer.parseInt(ev));
+                                break;
+                            case "class java.lang.Double":
+                                field.set(entity, "".equals(ev)?null:Double.parseDouble(ev));
+                                break;
+                            case "class java.lang.Long":
+                                field.set(entity, "".equals(ev)?null:Long.parseLong(ev));
+                                break;
+                            case "class java.util.Date":
+                                field.set(entity, "".equals(ev)?null:DateUtil.getJavaDate(Double.parseDouble(ev)));
+                                break;
+                            default:
+                                field.set(entity, "".equals(ev)?null:ev);
+                                break;
+                        }
+                    }catch (IllegalAccessException e) {
+                        e.printStackTrace();
+                    }finally {
+                        field.setAccessible(accessFlag);
+                    }
+                });
     }
 
     /**
      * 循环sheet页并分析excel表，插入实体，入库
      * @param wb excel实体
-     * @param classList excel对应的实体类路径列表
+     * @param packageName excel对应的实体类所在包
      * @throws ClassNotFoundException
      * @throws IllegalAccessException
      * @throws InstantiationException
      */
-    public static void analyzeExcel(Workbook wb, List<String> classList) throws ClassNotFoundException, IllegalAccessException, InstantiationException {
+    public static void analyzeExcel(Workbook wb, String packageName) throws ClassNotFoundException, IllegalAccessException, InstantiationException {
         List<Sheet> sheets = getSheets(wb);//获取excel中所有的页脚
-        Map<String, String> classPathMap = classExcelSheetMap(classList);//生成 excelSheet:classPath 的map
-//        List<Long> times = new ArrayList<>();/////////////////////
+        Map<String, Class> classPathMap = classExcelSheetMap(packageName);//生成 excelSheet:classPath 的map
         for (Sheet sheet : sheets) {
             String sheetName = sheet.getSheetName();
             int rowCount = sheet.getPhysicalNumberOfRows();//该sheet页对应的行数
@@ -163,14 +160,10 @@ public class ExcelUtils {
                 logger.info("{}页已读取完成", sheetName);
                 continue;
             }
-            //根据页脚查找对应类的全路径
-            String className = classPathMap.get(sheetName);
-            //根据类的全路径实例化相应的类
-            Class c = Class.forName(className);
+            Class c = classPathMap.get(sheetName);//根据页脚查找对应类
             logger.info("className = {}", c.getName());
             Row head = sheet.getRow(0);//获取表头
             for (int j = 1; j < rowCount; j++) {//获取每行
-//                Long begintime = System.currentTimeMillis();///////////////
                 logger.info("第{}行开始读取", j);
                 Row row = sheet.getRow(j);
                 Object entity = c.newInstance();
@@ -191,12 +184,8 @@ public class ExcelUtils {
                 logger.info("entity = {}", JSON.toJSONString(entity));//entity对应的类型是运行时类型
                 //+这里可以执行对实体的操作
                 logger.info("第{}行读取完成\n", j);
-//                Long endtime = System.currentTimeMillis();////////////////////
-//                times.add(endtime-begintime);
             }
-//            System.out.println(times.toString());
             logger.info("{}页已读取完成\n", sheetName);
-//            break;
 
         }
         logger.info("excel已读取完毕");
@@ -227,14 +216,11 @@ public class ExcelUtils {
         return true;
     }
 
-    public static void main(String[] args) throws ClassNotFoundException {
+    public static void main(String[] args){
         Workbook wb = importExcel("/home/amadeus/文档/templete.xlsx");
-        List<String> classList = new ArrayList<>();
-        //需添加的实体路径
-        classList.add("pers.fanjc.domain.BookDO");
-        classList.add("pers.fanjc.domain.UserDO");
+        String packageName = "pers.fanjc.domain";
         try {
-            analyzeExcel(wb, classList);
+            analyzeExcel(wb, packageName);
         } catch (ClassNotFoundException e) {
             e.printStackTrace();
         } catch (IllegalAccessException e) {
