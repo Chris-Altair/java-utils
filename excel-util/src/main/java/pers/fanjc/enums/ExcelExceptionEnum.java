@@ -1,11 +1,10 @@
-package pers.fanjc.exception;
+package pers.fanjc.enums;
 
 public enum ExcelExceptionEnum {
     /** 文件格式异常 */
     FILE_FORMAT_EXCEPTION("EU001","文件格式异常"),
     /** 没有sheet注解 */
-    NO_FIND_EXCEL_SHEET_EXCEPTION("EU002","未找到class的ExcelSheet注解")
-    ;
+    NO_FIND_EXCEL_SHEET_EXCEPTION("EU002","未找到class的ExcelSheet注解");
 
     private String errorCode;
     private String errorMsg;
@@ -19,15 +18,7 @@ public enum ExcelExceptionEnum {
         return errorCode;
     }
 
-    public void setErrorCode(String errorCode) {
-        this.errorCode = errorCode;
-    }
-
     public String getErrorMsg() {
         return errorMsg;
-    }
-
-    public void setErrorMsg(String errorMsg) {
-        this.errorMsg = errorMsg;
     }
 }
