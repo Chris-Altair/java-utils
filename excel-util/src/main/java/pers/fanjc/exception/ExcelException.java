@@ -1,5 +1,7 @@
 package pers.fanjc.exception;
 
+import pers.fanjc.enums.ExcelExceptionEnum;
+
 public class ExcelException extends RuntimeException {
     /** 错误码 */
     private String errorCode;
