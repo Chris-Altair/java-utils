@@ -1,16 +1,16 @@
 package pers.fanjc.util;
 
 import com.alibaba.fastjson.JSON;
-import org.apache.poi.hssf.usermodel.HSSFWorkbook;
+import org.apache.poi.openxml4j.exceptions.InvalidFormatException;
 import org.apache.poi.ss.usermodel.*;
-import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.reflections.Reflections;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import pers.fanjc.annotation.ExcelHead;
 import pers.fanjc.annotation.ExcelSheet;
+import pers.fanjc.enums.FieldTypeStrategy;
 import pers.fanjc.exception.ExcelException;
-import pers.fanjc.exception.ExcelExceptionEnum;
+import pers.fanjc.enums.ExcelExceptionEnum;
 
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
@@ -22,24 +22,20 @@ import java.util.*;
 public class ExcelUtils {
     private static Logger logger = LoggerFactory.getLogger(ExcelUtils.class);
 
-    public static Workbook importExcel(String filePath){
+    public static Workbook importExcel(String filePath) {
         InputStream is = null;
         Workbook wb = null;
-        if(!validateExcel(filePath)){
+        if (!validateExcel(filePath)) {
             throw new ExcelException(ExcelExceptionEnum.FILE_FORMAT_EXCEPTION);
         }
         try {
             is = new FileInputStream(filePath);
-            //根据文件名判断文件是2003版本还是2007版本
-
-            if (isExcel2007(filePath)) {
-                wb = new XSSFWorkbook(is);
-            } else {
-                wb = new HSSFWorkbook(is);
-            }
+            wb = WorkbookFactory.create(is);
         } catch (FileNotFoundException e) {
             e.printStackTrace();
         } catch (IOException e) {
+            e.printStackTrace();
+        } catch (InvalidFormatException e) {
             e.printStackTrace();
         } finally {
             if (is != null) {
@@ -55,12 +51,36 @@ public class ExcelUtils {
     }
 
     /**
+     * 是否是2003的excel，返回true是2003
+     */
+    private static boolean isExcel2003(String filePath) {
+        return filePath.matches("^.+\\.(?i)(xls)$");
+    }
+
+    /**
+     * 是否是2007的excel，返回true是2007
+     */
+    private static boolean isExcel2007(String filePath) {
+        return filePath.matches("^.+\\.(?i)(xlsx)$");
+    }
+
+    /**
+     * 验证EXCEL文件
+     */
+    private static boolean validateExcel(String filePath) {
+        if (filePath == null || !(isExcel2003(filePath) || isExcel2007(filePath))) {
+            return false;
+        }
+        return true;
+    }
+
+    /**
      * 获取excel全部的页脚
      *
      * @param wb
      * @return
      */
-    public static List<Sheet> getSheets(Workbook wb) {
+    private static List<Sheet> getSheets(Workbook wb) {
         List<Sheet> sheets = new ArrayList<>();
         for (int i = 0; i < wb.getNumberOfSheets(); i++) {
             sheets.add(wb.getSheetAt(i));
@@ -75,11 +95,11 @@ public class ExcelUtils {
      * @return
      * @throws ClassNotFoundException
      */
-    public static Map<String, Class> classExcelSheetMap(String packageName) {
+    private static Map<String, Class> classExcelSheetMap(String packageName) {
         Map<String, Class> excelSheetMap = new HashMap<>();
         Reflections reflections = new Reflections(packageName);
         Set<Class<?>> classSet = reflections.getTypesAnnotatedWith(ExcelSheet.class);
-        classSet.forEach(clazz->{
+        classSet.forEach(clazz -> {
             ExcelSheet excelSheet = clazz.getAnnotation(ExcelSheet.class);
             excelSheetMap.put(excelSheet.value(), clazz);
         });
@@ -96,44 +116,27 @@ public class ExcelUtils {
      * @param entity 需要赋值的实体entity
      * @throws IllegalAccessException
      */
-    public static void fieldsAssignment(Field[] fields, String name, String value, Object entity) {
+    private static void fieldsAssignment(Field[] fields, String name, String value, Object entity) {
         Arrays.stream(fields)
-                .filter(field->field.isAnnotationPresent(ExcelHead.class))
+                .filter(field -> field.isAnnotationPresent(ExcelHead.class))
                 .filter(field -> name.equals(field.getAnnotation(ExcelHead.class).value()))
                 .forEach(field -> {
                     String ev = value;
                     ExcelHead excelHead = field.getAnnotation(ExcelHead.class);
                     boolean accessFlag = field.isAccessible();
                     field.setAccessible(true);
-                    if(!"".equals(excelHead.dict())){
-                        Map<String,String> map = (Map) JSON.parse(excelHead.dict());
-                        ev = map.containsKey(ev)?map.get(ev):ev;
+                    if (!"".equals(excelHead.dict())) {
+                        Map<String, String> map = (Map) JSON.parse(excelHead.dict());
+                        ev = map.containsKey(ev) ? map.get(ev) : ev;
                     }
-                    //通过反射判断实体中的字段类型
-                    try{
-                        switch (field.getGenericType().toString()) {
-                            case "class java.lang.String":
-                                field.set(entity, ev);
-                                break;
-                            case "class java.lang.Integer":
-                                field.set(entity, "".equals(ev)?null:Integer.parseInt(ev));
-                                break;
-                            case "class java.lang.Double":
-                                field.set(entity, "".equals(ev)?null:Double.parseDouble(ev));
-                                break;
-                            case "class java.lang.Long":
-                                field.set(entity, "".equals(ev)?null:Long.parseLong(ev));
-                                break;
-                            case "class java.util.Date":
-                                field.set(entity, "".equals(ev)?null:DateUtil.getJavaDate(Double.parseDouble(ev)));
-                                break;
-                            default:
-                                field.set(entity, "".equals(ev)?null:ev);
-                                break;
-                        }
-                    }catch (IllegalAccessException e) {
+                    // 使用策略模式转换类型
+                    try {
+                        String typeName = field.getGenericType().toString().split("\\.")[2].toUpperCase();
+                        FieldTypeStrategy strategy = FieldTypeStrategy.valueOf(typeName);
+                        field.set(entity, strategy.transform(ev));
+                    } catch (IllegalAccessException e) {
                         e.printStackTrace();
-                    }finally {
+                    } finally {
                         field.setAccessible(accessFlag);
                     }
                 });
@@ -141,7 +144,8 @@ public class ExcelUtils {
 
     /**
      * 循环sheet页并分析excel表，插入实体，入库
-     * @param wb excel实体
+     *
+     * @param wb          excel实体
      * @param packageName excel对应的实体类所在包
      * @throws ClassNotFoundException
      * @throws IllegalAccessException
@@ -153,9 +157,9 @@ public class ExcelUtils {
         for (Sheet sheet : sheets) {
             String sheetName = sheet.getSheetName();
             int rowCount = sheet.getPhysicalNumberOfRows();//该sheet页对应的行数
-            logger.info("开始读取{}页，总计{}条数据", new Object[]{sheetName,rowCount-1});
+            logger.info("开始读取{}页，总计{}条数据", new Object[]{sheetName, rowCount - 1});
             //如果没有数据则跳到下一个sheet
-            if (rowCount < 2){
+            if (rowCount < 2) {
                 logger.info("{}页为空", sheetName);
                 logger.info("{}页已读取完成", sheetName);
                 continue;
@@ -191,32 +195,7 @@ public class ExcelUtils {
         logger.info("excel已读取完毕");
     }
 
-
-    /**
-     * 是否是2003的excel，返回true是2003
-     */
-    public static boolean isExcel2003(String filePath) {
-        return filePath.matches("^.+\\.(?i)(xls)$");
-    }
-
-    /**
-     * 是否是2007的excel，返回true是2007
-     */
-    public static boolean isExcel2007(String filePath) {
-        return filePath.matches("^.+\\.(?i)(xlsx)$");
-    }
-
-    /**
-     * 验证EXCEL文件
-     */
-    public static boolean validateExcel(String filePath) {
-        if (filePath == null || !(isExcel2003(filePath) || isExcel2007(filePath))) {
-            return false;
-        }
-        return true;
-    }
-
-    public static void main(String[] args){
+    public static void main(String[] args) {
         Workbook wb = importExcel("/home/amadeus/文档/templete.xlsx");
         String packageName = "pers.fanjc.domain";
         try {
